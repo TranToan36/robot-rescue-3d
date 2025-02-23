@@ -1,0 +1,125 @@
+import * as THREE from 'three';
+import { Howl } from 'howler';
+
+// Khởi tạo scene, camera, renderer
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Thêm ánh sáng
+const light = new THREE.PointLight(0xffffff, 1, 100);
+light.position.set(10, 10, 10);
+scene.add(light);
+const ambientLight = new THREE.AmbientLight(0x404040, 2); // Ánh sáng môi trường
+scene.add(ambientLight);
+
+// Tạo robot (hình hộp đơn giản)
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+const material = new THREE.MeshStandardMaterial({ color: 0x00ff00, metalness: 0.8, roughness: 0.3, emissive: 0x00ff00, emissiveIntensity: 0.5 });
+const robot = new THREE.Mesh(geometry, material);
+scene.add(robot);
+
+// Đặt vị trí camera
+camera.position.z = 5;
+
+// Thêm hiệu ứng phát sáng
+const glowMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+const glow = new THREE.Mesh(geometry.clone().scale(1.2, 1.2, 1.2), glowMaterial);
+scene.add(glow);
+
+// Thêm âm thanh
+const shootSound = new Howl({ src: ['shoot.mp3'] });
+const explosionSound = new Howl({ src: ['explosion.mp3'] });
+const backgroundMusic = new Howl({ src: ['background.mp3'], loop: true, volume: 0.5 });
+backgroundMusic.play();
+
+// Điều khiển robot
+const keys = { W: false, A: false, S: false, D: false, Space: false };
+document.addEventListener('keydown', (event) => { if (keys.hasOwnProperty(event.code)) keys[event.code] = true; });
+document.addEventListener('keyup', (event) => { if (keys.hasOwnProperty(event.code)) keys[event.code] = false; });
+
+// Thêm bắn đạn
+const bullets = [];
+const bulletGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+
+document.addEventListener('mousedown', () => shoot());
+function shoot() {
+    const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+    bullet.position.set(robot.position.x, robot.position.y, robot.position.z);
+    bullets.push(bullet);
+    scene.add(bullet);
+    shootSound.play();
+}
+
+// Thêm kẻ địch với AI nâng cao
+const enemies = [];
+const enemyGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+const enemyMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+function spawnEnemy() {
+    const enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
+    enemy.position.set(Math.random() * 4 - 2, Math.random() * 4 - 2, -10);
+    enemy.velocity = new THREE.Vector3((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02, 0.02);
+    enemy.groupID = Math.floor(Math.random() * 3); // Chia nhóm để tấn công theo bầy
+    enemies.push(enemy);
+    scene.add(enemy);
+}
+setInterval(spawnEnemy, 2000);
+
+// Thêm chuyển động và va chạm với chiến thuật theo bầy
+function animate() {
+    requestAnimationFrame(animate);
+    
+    if (keys.W) robot.position.z -= 0.05;
+    if (keys.S) robot.position.z += 0.05;
+    if (keys.A) robot.position.x -= 0.05;
+    if (keys.D) robot.position.x += 0.05;
+    if (keys.Space) robot.position.y += 0.1;
+    else robot.position.y -= 0.05;
+    
+    bullets.forEach((bullet, bIndex) => {
+        bullet.position.z -= 0.1;
+        if (bullet.position.z < -10) {
+            scene.remove(bullet);
+            bullets.splice(bIndex, 1);
+        }
+    });
+    
+    enemies.forEach((enemy, eIndex) => {
+        const allies = enemies.filter(e => e.groupID === enemy.groupID);
+        const groupCenter = allies.reduce((sum, e) => sum.add(e.position), new THREE.Vector3()).divideScalar(allies.length);
+        const directionToRobot = new THREE.Vector3().subVectors(robot.position, enemy.position).normalize();
+        const directionToGroup = new THREE.Vector3().subVectors(groupCenter, enemy.position).normalize();
+        enemy.velocity.x += directionToRobot.x * 0.002 + directionToGroup.x * 0.001;
+        enemy.velocity.y += directionToRobot.y * 0.002 + directionToGroup.y * 0.001;
+        enemy.position.add(enemy.velocity);
+        if (enemy.position.z > 5) {
+            scene.remove(enemy);
+            enemies.splice(eIndex, 1);
+        }
+    });
+    
+    bullets.forEach((bullet, bIndex) => {
+        enemies.forEach((enemy, eIndex) => {
+            const distance = bullet.position.distanceTo(enemy.position);
+            if (distance < 0.5) {
+                scene.remove(bullet);
+                scene.remove(enemy);
+                bullets.splice(bIndex, 1);
+                enemies.splice(eIndex, 1);
+                explosionSound.play();
+            }
+        });
+    });
+    
+    renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
